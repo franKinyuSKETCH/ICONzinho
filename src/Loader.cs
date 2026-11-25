@@ -12,11 +12,11 @@ using Microsoft.Win32;
 
 namespace Iconzinho
 {
-    /// <summary>Uma imagem carregada, já quadrada.</summary>
+    /// <summary>Um arquivo de imagem.</summary>
     class Source
     {
         public string Path;
-        public FloatImage Image;
+        public FloatImage Image;  // já quadrada; só existe enquanto o ícone é montado
         public int Size;          // lado do quadrado no arquivo original (a Image pode ter sido reduzida)
         public bool Vector;
         public string BaseName;   // nome sem o tamanho: "logo-32.png" -> "logo", "32.png" -> ""
@@ -31,33 +31,53 @@ namespace Iconzinho
         // ocuparia gigabytes, e o maior frame do ícone tem 256.
         const int MaxSide = 1024;
 
-        public static Source Load(string path)
+        /// <summary>Só o tamanho e o nome, sem ler os pixels.</summary>
+        public static Source Probe(string path)
         {
-            byte[] data = File.ReadAllBytes(path); // não trava o arquivo
             Source s = new Source { Path = path };
             s.BaseName = s.FileName;
-
             if (System.IO.Path.GetExtension(path).Equals(".svg", StringComparison.OrdinalIgnoreCase))
             {
                 s.Vector = true;
                 s.Size = MaxSide;
-                using (Bitmap b = RenderSvg(data)) s.Image = FloatImage.FromBitmap(b, MaxSide);
                 return s;
             }
 
-            bool webp = data.Length > 12 && Encoding.ASCII.GetString(data, 0, 4) == "RIFF" && Encoding.ASCII.GetString(data, 8, 4) == "WEBP";
-            using (MemoryStream ms = new MemoryStream(data))
-            using (Bitmap b = webp ? DecodeWebp(ms) : new Bitmap(ms))
+            using (FileStream f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
-                FixOrientation(b);
-                s.Size = Math.Max(b.Width, b.Height);
-                s.Image = FloatImage.FromBitmap(b, MaxSide).PadToSquare();
+                if (IsWebp(f)) s.Size = WebpSide(f);
+                else
+                    using (Image i = Image.FromStream(f, false, false)) s.Size = Math.Max(i.Width, i.Height);
             }
             // Só corta o número se ele for mesmo o tamanho da imagem: "foto2.png" continua "foto2".
             s.BaseName = Regex.Replace(s.FileName, @"[\s._\-(\[]*(?<!\d)" + s.Size + @"(\s*x\s*" + s.Size + @")?(px)?[)\]]?$", "", RegexOptions.IgnoreCase);
             return s;
         }
 
+        /// <summary>Lê os pixels para s.Image.</summary>
+        public static void Decode(Source s)
+        {
+            byte[] data = File.ReadAllBytes(s.Path); // não trava o arquivo
+            if (s.Vector)
+            {
+                using (Bitmap b = RenderSvg(data)) s.Image = FloatImage.FromBitmap(b, MaxSide);
+                return;
+            }
+            using (MemoryStream ms = new MemoryStream(data))
+            using (Bitmap b = IsWebp(ms) ? DecodeWebp(ms) : new Bitmap(ms))
+            {
+                FixOrientation(b);
+                s.Image = FloatImage.FromBitmap(b, MaxSide).PadToSquare();
+            }
+        }
+
+        static bool IsWebp(Stream s)
+        {
+            byte[] h = new byte[12];
+            int n = s.Read(h, 0, 12);
+            s.Position = 0;
+            return n == 12 && Encoding.ASCII.GetString(h, 0, 4) == "RIFF" && Encoding.ASCII.GetString(h, 8, 4) == "WEBP";
+        }
         /// <summary>Fotos de celular vêm deitadas, com a rotação só anotada no EXIF.</summary>
         static void FixOrientation(Bitmap b)
         {
@@ -85,18 +105,26 @@ namespace Iconzinho
         /// </summary>
         static Bitmap DecodeWebp(Stream data)
         {
-            try
+            return ReadWebp(data, delegate(System.Windows.Media.Imaging.BitmapFrame frame)
             {
-                var dec = System.Windows.Media.Imaging.BitmapDecoder.Create(data,
-                    System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreColorProfile,
-                    System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-                var src = new System.Windows.Media.Imaging.FormatConvertedBitmap(dec.Frames[0],
-                    System.Windows.Media.PixelFormats.Bgra32, null, 0);
+                var src = new System.Windows.Media.Imaging.FormatConvertedBitmap(frame, System.Windows.Media.PixelFormats.Bgra32, null, 0);
                 Bitmap b = new Bitmap(src.PixelWidth, src.PixelHeight, PixelFormat.Format32bppArgb);
                 BitmapData bd = b.LockBits(new Rectangle(0, 0, b.Width, b.Height), ImageLockMode.WriteOnly, b.PixelFormat);
                 src.CopyPixels(System.Windows.Int32Rect.Empty, bd.Scan0, bd.Stride * b.Height, bd.Stride);
                 b.UnlockBits(bd);
                 return b;
+            });
+        }
+
+        static int WebpSide(Stream data) { return ReadWebp(data, f => Math.Max(f.PixelWidth, f.PixelHeight)); }
+
+        static T ReadWebp<T>(Stream data, Func<System.Windows.Media.Imaging.BitmapFrame, T> use)
+        {
+            try
+            {
+                return use(System.Windows.Media.Imaging.BitmapDecoder.Create(data,
+                    System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreColorProfile | System.Windows.Media.Imaging.BitmapCreateOptions.DelayCreation,
+                    System.Windows.Media.Imaging.BitmapCacheOption.None).Frames[0]);
             }
             catch (NotSupportedException)
             {
@@ -109,7 +137,6 @@ namespace Iconzinho
                 throw new InvalidDataException(App.T("not a valid WebP image", "não é um WebP válido"));
             }
         }
-
         // ---------------------------------------------------------------- SVG
 
         /// <summary>

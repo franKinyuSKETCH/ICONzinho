@@ -37,7 +37,7 @@ The new menu only accepts commands from an MSIX package. Ours is **not digitally
 
 - **SmartScreen:** the files are not digitally signed, so Windows may warn you. Choose *More info > Run anyway*.
 - **Uninstall:** *Settings > Apps > Installed apps*. Or run `ICONzinho-Setup.exe` again: it detects the installation and offers to reinstall or uninstall. Your icons are kept.
-- **Silent install:** `ICONzinho-Setup.exe /S /lang=en` (or `/lang=pt`), with `/menu=classic`, `/menu=new` or `/menu=both`; classic is the default. To remove: `/S /uninstall`.
+- **Silent install:** `ICONzinho-Setup.exe /S /lang=en` (or `/lang=pt`), with `/menu=classic`, `/menu=new` or `/menu=both`; classic is the default. `/nopath` leaves the PATH alone. To remove: `/S /uninstall`.
 - **Without installing:** drop images onto `ICONzinho.exe`.
 
 ### Tips and special cases
@@ -78,8 +78,42 @@ Select several `.ico` files, right-click and choose **Create icon library (.dll)
 - The library is named after the folder, and the icons follow the order of the file names (`2` before `10`).
 - Icons are copied byte by byte, with all their sizes.
 - The DLL holds only resources, no code.
-- It is not updated later: to add icons, create it again. Windows points to an icon by its position, so a different order changes the icons of existing shortcuts.
+- To add icons later, select them and choose **Add to icon library...**. Windows points to an icon by its position in the DLL, so the existing ones stay where they are, the new ones go to the end and repeated ones are skipped. Creating the library again instead sorts everything by name, which can change the icons of existing shortcuts.
+- Only libraries created by ICONzinho can be extended. Other DLLs are never changed.
+- If the DLL is in use, a copy of the old one may stay next to it with the `.old` extension, until the next time you add icons.
 - If any file is not a valid `.ico`, nothing is created and the message says which one.
+
+### Command line
+
+The installer can enable the `iconz` command in the terminal (it adds the program folder to your user PATH; open a new terminal afterwards).
+
+| Command | What it does |
+|---|---|
+| `iconz create FILES\|FOLDERS...` | Images to `.ico` |
+| `iconz library FILES\|FOLDERS...` | `.ico` files to an icon library (`.dll`) |
+| `iconz add LIBRARY.dll FILES\|FOLDERS...` | Adds `.ico` files to the end of a library |
+| `iconz list LIBRARY.dll` | Position and sizes of each icon |
+
+| Option | Where | What it does |
+|---|---|---|
+| `-r`, `--recursive` | create, library, add | Includes subfolders |
+| `-o`, `--out PATH` | create, library | Folder for the icons, or the `.dll` to write |
+| `--ext png,svg` | create | Only these formats |
+| `--per-folder` | library | One `.dll` in each folder |
+| `--skip` | create, library | Keeps files that already exist |
+| `--overwrite` | create, library | Replaces files that already exist |
+| `-n`, `--dry-run` | create, library, add | Shows what would be done, without writing |
+| `-q`, `--quiet` | create, library, add | Shows only errors |
+
+```
+iconz create "D:\Projects" -r -n          check first, without writing
+iconz create "D:\Projects" -r --skip      one icon per set, in each folder
+iconz create *.svg -o icons
+iconz library icons -o my-icons.dll
+iconz add my-icons.dll new\*.ico
+```
+
+Without `--skip` or `--overwrite`, an existing name becomes `name (2)`. Exit code: 0 all good, 1 something failed, 2 wrong command.
 
 ### Formats in detail
 
@@ -106,17 +140,20 @@ Needs Windows 11, for the C# compiler (.NET Framework 4) and the Windows metadat
 powershell -ExecutionPolicy Bypass -File src\build.ps1
 ```
 
-This creates `ICONzinho.exe` and `ICONzinho-Setup.exe` in the `dist` folder.
+This creates `ICONzinho.exe`, `iconz.exe` and `ICONzinho-Setup.exe` in the `dist` folder.
 
 | File | Contents |
 |---|---|
-| `Program.cs` | Entry point, Explorer queue, grouping, `.ico` writing |
+| `Program.cs` | Right-click program: entry point and Explorer queue |
+| `Cli.cs` | `iconz` command |
+| `Converter.cs` | Grouping, `.ico` writing and library actions |
 | `Uninstaller.cs` | Removal |
 | `Loader.cs` | Reading of each format |
 | `Resampler.cs` | Scaling |
-| `IconLibrary.cs` | Icon library (`.dll`) writing |
+| `IconLibrary.cs` | Icon library (`.dll`) reading and writing |
 | `Common.cs` | Names, paths and language |
 | `Setup.cs` | Installer |
+| `UserPath.cs` | PATH entry |
 | `MenuPackage.cs` | Installing and removing the new menu package |
 | `menu/` | New menu: the DLL (`IExplorerCommand`), the MSIX manifest and the packaging tool |
 
@@ -165,7 +202,7 @@ O menu novo só aceita comandos de um pacote MSIX. O nosso **não tem assinatura
 
 - **SmartScreen:** os arquivos não têm assinatura digital, então o Windows pode avisar. Escolha *Mais informações > Executar assim mesmo*.
 - **Desinstalar:** *Configurações > Aplicativos > Aplicativos instalados*. Ou abra o `ICONzinho-Setup.exe` de novo: ele detecta a instalação e oferece reinstalar ou desinstalar. Os seus ícones são mantidos.
-- **Instalação silenciosa:** `ICONzinho-Setup.exe /S /lang=pt` (ou `/lang=en`), com `/menu=classic`, `/menu=new` ou `/menu=both`; o padrão é o clássico. Para remover: `/S /uninstall`.
+- **Instalação silenciosa:** `ICONzinho-Setup.exe /S /lang=pt` (ou `/lang=en`), com `/menu=classic`, `/menu=new` ou `/menu=both`; o padrão é o clássico. `/nopath` não mexe no PATH. Para remover: `/S /uninstall`.
 - **Sem instalar:** arraste imagens para cima do `ICONzinho.exe`.
 
 ### Segredinhos e casos especiais
@@ -206,8 +243,42 @@ Selecione vários `.ico`, clique com o botão direito e escolha **Criar bibliote
 - A biblioteca leva o nome da pasta, e os ícones seguem a ordem dos nomes dos arquivos (`2` antes de `10`).
 - Os ícones são copiados byte a byte, com todos os tamanhos.
 - A DLL só tem recursos, sem código.
-- Ela não é atualizada depois: para acrescentar ícones, crie de novo. O Windows aponta para um ícone pela posição, então mudar a ordem troca os ícones dos atalhos existentes.
+- Para acrescentar ícones depois, selecione-os e escolha **Adicionar à biblioteca de ícones...**. O Windows aponta para um ícone pela posição na DLL, então os que já estavam ficam onde estão, os novos vão para o fim e os repetidos são pulados. Já criar a biblioteca de novo põe tudo em ordem de nome, o que pode trocar os ícones dos atalhos existentes.
+- Só dá para acrescentar a bibliotecas criadas pelo ICONzinho. Outras DLLs nunca são alteradas.
+- Se a DLL estiver em uso, pode ficar ao lado uma cópia da antiga, com a extensão `.old`, até a próxima vez que você acrescentar ícones.
 - Se algum arquivo não for um `.ico` válido, nada é criado e a mensagem diz qual é.
+
+### Linha de comando
+
+O instalador pode ativar o comando `iconz` no terminal (ele põe a pasta do programa no PATH do seu usuário; abra um terminal novo depois).
+
+| Comando | O que faz |
+|---|---|
+| `iconz create ARQUIVOS\|PASTAS...` | Imagens para `.ico` |
+| `iconz library ARQUIVOS\|PASTAS...` | `.ico` para uma biblioteca de ícones (`.dll`) |
+| `iconz add BIBLIOTECA.dll ARQUIVOS\|PASTAS...` | Adiciona `.ico` ao fim de uma biblioteca |
+| `iconz list BIBLIOTECA.dll` | Posição e tamanhos de cada ícone |
+
+| Opção | Onde | O que faz |
+|---|---|---|
+| `-r`, `--recursive` | create, library, add | Inclui as subpastas |
+| `-o`, `--out CAMINHO` | create, library | Pasta dos ícones, ou a `.dll` a gravar |
+| `--ext png,svg` | create | Só estes formatos |
+| `--per-folder` | library | Uma `.dll` em cada pasta |
+| `--skip` | create, library | Mantém os arquivos que já existem |
+| `--overwrite` | create, library | Substitui os arquivos que já existem |
+| `-n`, `--dry-run` | create, library, add | Mostra o que seria feito, sem gravar |
+| `-q`, `--quiet` | create, library, add | Mostra só os erros |
+
+```
+iconz create "D:\Projetos" -r -n          confere antes, sem gravar
+iconz create "D:\Projetos" -r --skip      um ícone por conjunto, em cada pasta
+iconz create *.svg -o icones
+iconz library icones -o meus-icones.dll
+iconz add meus-icones.dll novos\*.ico
+```
+
+Sem `--skip` nem `--overwrite`, um nome que já existe vira `nome (2)`. Código de saída: 0 tudo certo, 1 algo falhou, 2 comando errado.
 
 ### Formatos em detalhe
 
@@ -234,17 +305,20 @@ Precisa do Windows 11, pelo compilador de C# (.NET Framework 4) e pelos metadado
 powershell -ExecutionPolicy Bypass -File src\build.ps1
 ```
 
-Gera `ICONzinho.exe` e `ICONzinho-Setup.exe` na pasta `dist`.
+Gera `ICONzinho.exe`, `iconz.exe` e `ICONzinho-Setup.exe` na pasta `dist`.
 
 | Arquivo | Conteúdo |
 |---|---|
-| `Program.cs` | Entrada, fila do Explorer, agrupamento, gravação do `.ico` |
+| `Program.cs` | Programa do clique direito: entrada e fila do Explorer |
+| `Cli.cs` | Comando `iconz` |
+| `Converter.cs` | Agrupamento, gravação do `.ico` e ações da biblioteca |
 | `Uninstaller.cs` | Remoção |
 | `Loader.cs` | Leitura de cada formato |
 | `Resampler.cs` | Redimensionamento |
-| `IconLibrary.cs` | Gravação da biblioteca (`.dll`) |
+| `IconLibrary.cs` | Leitura e gravação da biblioteca (`.dll`) |
 | `Common.cs` | Nomes, caminhos e idioma |
 | `Setup.cs` | Instalador |
+| `UserPath.cs` | Entrada no PATH |
 | `MenuPackage.cs` | Instalação e remoção do pacote do menu novo |
 | `menu/` | Menu novo: a DLL (`IExplorerCommand`), o manifesto MSIX e a ferramenta que empacota |
 

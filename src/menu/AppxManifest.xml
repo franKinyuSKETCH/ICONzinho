@@ -41,7 +41,7 @@
             <desktop4:ItemType Type=".svg"><desktop4:Verb Id="ICONzinho" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c"/></desktop4:ItemType>
             <desktop4:ItemType Type=".bmp"><desktop4:Verb Id="ICONzinho" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c"/></desktop4:ItemType>
             <desktop4:ItemType Type=".gif"><desktop4:Verb Id="ICONzinho" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c"/></desktop4:ItemType>
-            <desktop4:ItemType Type=".ico"><desktop4:Verb Id="ICONzinhoLibrary" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a72c"/></desktop4:ItemType>
+            <desktop4:ItemType Type=".ico"><desktop4:Verb Id="ICONzinhoGroup" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a72c"/></desktop4:ItemType>
           </desktop4:FileExplorerContextMenus>
         </desktop4:Extension>
       </Extensions>

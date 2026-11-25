@@ -49,6 +49,68 @@ namespace Iconzinho
             return Pe(Resources(icons, groups));
         }
 
+        /// <summary>
+        /// Os .ico de uma biblioteca feita por Build, na ordem; null se for qualquer outro arquivo. A
+        /// prova é remontar e comparar byte a byte: assim nunca se regrava a DLL de outro programa.
+        /// </summary>
+        public static List<byte[]> Read(byte[] dll)
+        {
+            try
+            {
+                if (dll.Length < HeaderSize + 48 || Encoding.ASCII.GetString(dll, 0x188, 5) != ".rsrc") return null;
+                int icons = BitConverter.ToUInt16(dll, HeaderSize + 32 + 14);
+                int groupDir = 32 + 16 + 8 * icons;
+                int groups = BitConverter.ToUInt16(dll, HeaderSize + groupDir + 14);
+                int entries = groupDir + 16 + 8 * groups + 24 * (icons + groups);
+                Func<int, byte[]> resource = i =>
+                {
+                    int e = HeaderSize + entries + 16 * i;
+                    byte[] d = new byte[BitConverter.ToInt32(dll, e + 4)];
+                    Array.Copy(dll, BitConverter.ToInt32(dll, e) - SectionRva + HeaderSize, d, 0, d.Length);
+                    return d;
+                };
+
+                List<byte[]> icos = new List<byte[]>();
+                for (int g = 0; g < groups; g++)
+                {
+                    byte[] d = resource(icons + g);
+                    List<Frame> frames = new List<Frame>();
+                    for (int i = 0, e = 6; i < BitConverter.ToUInt16(d, 4); i++, e += 14)
+                        frames.Add(new Frame
+                        {
+                            Width = d[e], Height = d[e + 1], Colors = d[e + 2],
+                            Planes = BitConverter.ToUInt16(d, e + 4), Bits = BitConverter.ToUInt16(d, e + 6),
+                            Data = resource(BitConverter.ToUInt16(d, e + 12) - 1)
+                        });
+                    icos.Add(ToIco(frames));
+                }
+                return icos.Count > 0 && Build(icos).SequenceEqual(dll) ? icos : null;
+            }
+            catch (Exception) { return null; } // não tem o nosso formato
+        }
+
+        /// <summary>O mesmo ícone sempre nos mesmos bytes, para reconhecer repetidos.</summary>
+        public static byte[] Normalize(byte[] ico) { return ToIco(Parse(ico)); }
+
+        static byte[] ToIco(List<Frame> frames)
+        {
+            using (MemoryStream ms = new MemoryStream())
+            using (BinaryWriter w = new BinaryWriter(ms))
+            {
+                w.Write((ushort)0); w.Write((ushort)1); w.Write((ushort)frames.Count);
+                int offset = 6 + 16 * frames.Count;
+                foreach (Frame f in frames)
+                {
+                    w.Write(f.Width); w.Write(f.Height); w.Write(f.Colors); w.Write((byte)0);
+                    w.Write(f.Planes); w.Write(f.Bits); w.Write(f.Data.Length); w.Write(offset);
+                    offset += f.Data.Length;
+                }
+                foreach (Frame f in frames) w.Write(f.Data);
+                w.Flush();
+                return ms.ToArray();
+            }
+        }
+
         static Exception Bad() { return new InvalidDataException(App.T("not a valid .ico", "não é um .ico válido")); }
 
         static List<Frame> Parse(byte[] b)

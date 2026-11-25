@@ -17,17 +17,18 @@ namespace Iconzinho
         [DllImport("shell32.dll")]
         static extern void SHChangeNotify(int ev, uint flags, IntPtr item1, IntPtr item2);
 
-        /// <summary>Sem argumentos abre a janela. "/S" não pergunta nada; "/uninstall" remove; "/lang=en" ou "/lang=pt"; "/menu=classic", "/menu=new" ou "/menu=both".</summary>
+        /// <summary>Sem argumentos abre a janela. "/S" não pergunta nada; "/uninstall" remove; "/lang=en" ou "/lang=pt"; "/menu=classic", "/menu=new" ou "/menu=both"; "/nopath" não põe o iconz no PATH.</summary>
         [STAThread]
         static int Main(string[] args)
         {
-            bool silent = false, remove = false;
+            bool silent = false, remove = false, path = true;
             Menus menus = Menus.Classic;
             foreach (string a in args)
             {
                 string s = a.ToLowerInvariant();
                 if (s == "/s") silent = true;
                 else if (s == "/uninstall") remove = true;
+                else if (s == "/nopath") path = false;
                 else if (s == "/menu=new") menus = Menus.New;
                 else if (s == "/menu=both") menus = Menus.Both;
                 else if (s == "/lang=en") App.Language = "en";
@@ -35,7 +36,7 @@ namespace Iconzinho
             }
             if (silent)
             {
-                try { if (remove) Uninstall(); else Install(menus); return 0; }
+                try { if (remove) Uninstall(); else Install(menus, path); return 0; }
                 catch (Exception ex) { Console.Error.WriteLine(ex.Message); return 1; }
             }
             Application.EnableVisualStyles();
@@ -54,8 +55,8 @@ namespace Iconzinho
 
         public static void Uninstall()
         {
-            // O exe primeiro: se estiver em uso e der erro, o registro continua inteiro para tentar de novo.
-            if (File.Exists(App.ExePath)) File.Delete(App.ExePath);
+            // Os exes primeiro: se estiver em uso e der erro, o registro continua inteiro para tentar de novo.
+            foreach (string exe in new[] { App.CliPath, App.ExePath }) if (File.Exists(exe)) File.Delete(exe);
             Uninstaller.RemoveSettings();
             // Sem recursão de propósito: se alguém pôs outra coisa na pasta, ela fica.
             try { if (Directory.Exists(App.InstallDir)) Directory.Delete(App.InstallDir); } catch (IOException) { }
@@ -77,18 +78,19 @@ namespace Iconzinho
                 s.CopyTo(f);
         }
 
-        public static void Install(Menus menus)
+        public static void Install(Menus menus, bool path)
         {
             bool fresh = InstalledVersion() == null;
             Directory.CreateDirectory(App.InstallDir);
             Extract("ICONzinho.exe", App.ExePath);
+            Extract("iconz.exe", App.CliPath);
 
             // O menu novo primeiro, porque é o que pode falhar (UAC negado, por exemplo): até aqui os
             // menus que já existiam continuam como estavam.
             try
             {
                 if ((menus & Menus.New) == 0) MenuPackage.Remove();
-                else if (MenuPackage.InstalledVersion() != App.Version) AddPackage();
+                else if (MenuPackage.InstalledVersion() != App.MenuVersion) AddPackage();
             }
             catch (Exception)
             {
@@ -99,9 +101,12 @@ namespace Iconzinho
             using (RegistryKey k = Registry.CurrentUser.CreateSubKey(App.SettingsKey))
                 k.SetValue("Language", App.Language);
 
+            UserPath.Set(path);
+
             bool classic = (menus & Menus.Classic) != 0;
             foreach (string key in App.VerbKeys) SetVerb(classic, key, App.MenuText, "--queue");
             SetVerb(classic, App.LibraryVerbKey, App.LibraryText, "--queue-lib");
+            SetVerb(classic, App.AddVerbKey, App.AddText, "--queue-add");
 
             // É esta chave que faz o programa aparecer em Configurações > Aplicativos instalados.
             using (RegistryKey k = Registry.CurrentUser.CreateSubKey(App.UninstallKey))
@@ -114,7 +119,7 @@ namespace Iconzinho
                 k.SetValue("InstallDate", DateTime.Now.ToString("yyyyMMdd"));
                 k.SetValue("UninstallString", "\"" + App.ExePath + "\" --uninstall");
                 k.SetValue("QuietUninstallString", "\"" + App.ExePath + "\" --uninstall --quiet");
-                k.SetValue("EstimatedSize", (int)(new FileInfo(App.ExePath).Length / 1024), RegistryValueKind.DWord);
+                k.SetValue("EstimatedSize", (int)((new FileInfo(App.ExePath).Length + new FileInfo(App.CliPath).Length) / 1024), RegistryValueKind.DWord);
                 k.SetValue("NoModify", 1, RegistryValueKind.DWord);
                 k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
             }
@@ -147,7 +152,8 @@ namespace Iconzinho
                 MenuPackage.InstallElevated(msix);
             }
             finally { File.Delete(msix); }
-        }    }
+        }
+    }
 
     class SetupForm : Form
     {
@@ -156,6 +162,7 @@ namespace Iconzinho
         readonly Label menuLabel = new Label();
         readonly Panel menuBox = new Panel(); // separa este grupo de opções do idioma
         readonly RadioButton classic = new RadioButton(), modern = new RadioButton(), both = new RadioButton();
+        readonly CheckBox path = new CheckBox();
         readonly Button ok = new Button(), cancel = new Button(), remove = new Button();
         enum Stage { Start, Installed, Removed }
         Stage stage = Stage.Start;
@@ -166,7 +173,7 @@ namespace Iconzinho
             AutoScaleDimensions = new SizeF(96, 96);
             AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Segoe UI", 9.75f);
-            ClientSize = new Size(460, 384);
+            ClientSize = new Size(460, 418);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
@@ -188,9 +195,10 @@ namespace Iconzinho
             modern.Bounds = new Rectangle(0, 27, 410, 26);
             both.Bounds = new Rectangle(0, 54, 410, 26);
             menuBox.Controls.AddRange(new Control[] { classic, modern, both });
-            langLabel.Bounds = new Rectangle(24, 270, 180, 24);
-            en.Bounds = new Rectangle(24, 294, 110, 26);
-            pt.Bounds = new Rectangle(140, 294, 130, 26);
+            path.Bounds = new Rectangle(24, 262, 412, 26);
+            langLabel.Bounds = new Rectangle(24, 304, 180, 24);
+            en.Bounds = new Rectangle(24, 328, 110, 26);
+            pt.Bounds = new Rectangle(140, 328, 130, 26);
             en.Text = "English";
             pt.Text = "Português";
 
@@ -200,20 +208,22 @@ namespace Iconzinho
             tips.Bounds = new Rectangle(24, 246, 412, 252);
             tipsTitle.Visible = tips.Visible = false;
 
-            Panel bar = new Panel { Bounds = new Rectangle(0, 334, 460, 50), BackColor = Color.FromArgb(243, 243, 243), Dock = DockStyle.Bottom };
+            Panel bar = new Panel { Bounds = new Rectangle(0, 368, 460, 50), BackColor = Color.FromArgb(243, 243, 243), Dock = DockStyle.Bottom };
             ok.Bounds = new Rectangle(236, 10, 100, 30);
             cancel.Bounds = new Rectangle(344, 10, 100, 30);
             remove.Bounds = new Rectangle(16, 10, 110, 30);
             remove.Visible = found != null;
             ok.UseVisualStyleBackColor = cancel.UseVisualStyleBackColor = remove.UseVisualStyleBackColor = true;
             bar.Controls.AddRange(new Control[] { ok, cancel, remove });
-            Controls.AddRange(new Control[] { pic, title, author, body, menuLabel, menuBox, langLabel, en, pt, tipsTitle, tips, bar });
+            Controls.AddRange(new Control[] { pic, title, author, body, menuLabel, menuBox, path, langLabel, en, pt, tipsTitle, tips, bar });
             AcceptButton = ok;
             CancelButton = cancel;
 
             Menus now = Setup.InstalledMenus();
             if (now == 0) now = MenuPackage.Supported ? Menus.Both : Menus.Classic;
             (now == Menus.Both ? both : now == Menus.New ? modern : classic).Checked = true;
+            // Sem o iconz ao lado, é primeira instalação ou versão antiga: sugere. Depois, respeita a escolha.
+            path.Checked = !File.Exists(App.CliPath) || UserPath.Contains();
             modern.Enabled = both.Enabled = MenuPackage.Supported;
             (App.Language == "pt" ? pt : en).Checked = true;
             en.CheckedChanged += delegate { App.Language = en.Checked ? "en" : "pt"; Texts(); };
@@ -227,7 +237,7 @@ namespace Iconzinho
 
         void DoInstall()
         {
-            if (!Try(delegate { Setup.Install(Chosen); })) return;
+            if (!Try(delegate { Setup.Install(Chosen, path.Checked); })) return;
             Finish(Stage.Installed);
             tipsTitle.Visible = tips.Visible = true;
             body.Height = tipsTitle.Top - body.Top;
@@ -254,7 +264,7 @@ namespace Iconzinho
         void Finish(Stage s)
         {
             stage = s;
-            menuLabel.Visible = menuBox.Visible = langLabel.Visible = en.Visible = pt.Visible = cancel.Visible = remove.Visible = false;
+            menuLabel.Visible = menuBox.Visible = path.Visible = langLabel.Visible = en.Visible = pt.Visible = cancel.Visible = remove.Visible = false;
             ok.Left = cancel.Left;
             CancelButton = ok;
             ok.Focus();
@@ -271,6 +281,7 @@ namespace Iconzinho
             classic.Text = App.T("Classic menu only", "Só no menu clássico");
             modern.Text = App.T("New Windows 11 menu only", "Só no menu novo do Windows 11");
             both.Text = App.T("Both menus", "Nos dois menus");
+            path.Text = App.T("Enable the iconz command in the terminal (PATH)", "Ativar o comando iconz no terminal (PATH)");
             cancel.Text = App.T("Cancel", "Cancelar");
             author.Text = App.T("by ", "por ") + App.Author;
             remove.Text = App.T("Uninstall", "Desinstalar");
@@ -309,18 +320,19 @@ namespace Iconzinho
                     + "\n\n" + (!hidden ? "" : App.T("On Windows 11 it is under \"Show more options\" (or Shift + right-click). ",
                                                      "No Windows 11 fica em \"Mostrar mais opções\" (ou Shift + clique direito). "))
                     + App.T("To remove it, run this installer again or go to Settings > Apps > Installed apps.",
-                            "Para remover, abra este instalador de novo ou vá em Configurações > Aplicativos > Aplicativos instalados.");                tipsTitle.Text = App.T("Good to know", "Segredinhos:");
+                            "Para remover, abra este instalador de novo ou vá em Configurações > Aplicativos > Aplicativos instalados.");
+                tipsTitle.Text = App.T("Good to know", "Segredinhos:");
                 tips.Text = App.T(
                     "•  One art per size: select 512.png, 256.png, 48.png, 16.png… together to get a single icon that uses your own art at each size. The number must be the image's real size.\n\n" +
                     "•  logo-32.png, logo-16.png… also works, and adding logo.svg fills in the missing sizes.\n\n" +
                     "•  Images with different names become one icon each.\n\n" +
                     "•  Non-square images are fitted and centered, never stretched.\n\n" +
-                    "•  Select several .ico files to create an icon library (.dll) for the \"Change Icon\" window.",
+                    "•  Select several .ico files to create an icon library (.dll) for the \"Change Icon\" window, or add them to one you already have.",
                     "•  Uma arte por tamanho: selecione 512.png, 256.png, 48.png, 16.png… juntos e saia com um único ícone, com a sua arte em cada tamanho. O número deve ser o tamanho real da imagem.\n\n" +
                     "•  logo-32.png, logo-16.png… também funciona, e um logo.svg junto completa os tamanhos que faltarem.\n\n" +
                     "•  Imagens com nomes diferentes viram um ícone cada.\n\n" +
                     "•  Imagem não quadrada é encaixada e centralizada, sem esticar.\n\n" +
-                    "•  Selecione vários .ico para criar uma biblioteca de ícones (.dll) para a janela \"Alterar Ícone\".");
+                    "•  Selecione vários .ico para criar uma biblioteca de ícones (.dll) para a janela \"Alterar Ícone\", ou adicione a uma que já existe.");
                 ok.Text = App.T("Close", "Fechar");
             }
         }

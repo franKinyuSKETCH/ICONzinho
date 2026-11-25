@@ -1,28 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
-using Microsoft.Win32;
 
 namespace Iconzinho
 {
     static class Program
     {
-        // Tamanhos que o Windows pede entre 100% e 300% de escala. Se faltar um, o próprio
-        // Explorer redimensiona outro frame na hora, e feio.
-        static readonly int[] StandardSizes = { 16, 20, 24, 32, 40, 48, 64, 96, 128, 256 };
-        const int MaxFrame = 256; // limite do formato .ico
-
-        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-        static extern void SHChangeNotify(int ev, uint flags, string item1, IntPtr item2);
-
         static bool quiet;
 
         [STAThread]
@@ -41,12 +29,15 @@ namespace Iconzinho
                 switch (args[0])
                 {
                     case "--uninstall": return Uninstall();
-                    case "--queue": return RunQueued(args[1], App.QueueDir, Convert); // menu clássico
+                    case "--queue": return RunQueued(args[1], App.QueueDir, MakeIcons); // menu clássico
                     case "--queue-lib": return RunQueued(args[1], Path.Combine(App.QueueDir, "lib"), MakeLibrary);
+                    case "--queue-add": return RunQueued(args[1], Path.Combine(App.QueueDir, "add"), ChooseAndAdd);
                     case "--add-package": return MenuPackage.AddFromElevated(args[1], args[2]);
-                    case "--stdin": return Convert(ReadStdin()); // menu novo do Windows 11
+                    case "--stdin": return MakeIcons(ReadStdin()); // menu novo do Windows 11
                     case "--stdin-lib": return MakeLibrary(ReadStdin());
-                    default: return args.All(IsIco) ? MakeLibrary(args) : Convert(args); // arquivos arrastados
+                    case "--stdin-add": return ChooseAndAdd(ReadStdin());
+                    case "--add": return AddToLibrary(Path.GetFullPath(args[1]), args.Skip(2).ToList());
+                    default: return args.All(IsIco) ? MakeLibrary(args) : MakeIcons(args); // arquivos arrastados
                 }
             }
             catch (Exception ex) { return Fail(ex.Message); }
@@ -81,11 +72,11 @@ namespace Iconzinho
 
             Uninstaller.RemoveSettings();
             Info(done);
-            // Um programa não apaga a si mesmo enquanto roda: um cmd espera ele fechar e apaga só o
-            // nosso exe. O rmdir sem /s falha de propósito se alguém pôs outra coisa na pasta.
+            // Um programa não apaga a si mesmo enquanto roda: um cmd espera ele fechar e apaga só os
+            // nossos exes. O rmdir sem /s falha de propósito se alguém pôs outra coisa na pasta.
             if (File.Exists(App.ExePath))
                 Process.Start(new ProcessStartInfo("cmd.exe",
-                    "/d /c \"ping -n 3 127.0.0.1 >nul & del /f /q \"" + App.ExePath + "\" & rmdir \"" + App.InstallDir + "\"\"")
+                    "/d /c \"ping -n 3 127.0.0.1 >nul & del /f /q \"" + App.ExePath + "\" \"" + App.CliPath + "\" & rmdir \"" + App.InstallDir + "\"\"")
                     { CreateNoWindow = true, UseShellExecute = false, WorkingDirectory = Path.GetTempPath() });
             return 0;
         }
@@ -145,172 +136,51 @@ namespace Iconzinho
             return files;
         }
 
-        // ---------------------------------------------------------------- conversão
+        // ---------------------------------------------------------------- ações
 
-        static int Convert(List<string> paths)
+        /// <summary>Roda uma ação juntando os erros numa mensagem só.</summary>
+        static int Run(string errorTitle, Action<Job> action)
         {
-            List<Source> sources = new List<Source>();
             List<string> errors = new List<string>();
-            foreach (string p in paths.Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                try { sources.Add(Loader.Load(Path.GetFullPath(p))); }
-                catch (Exception ex) { errors.Add(Path.GetFileName(p) + ": " + (ex is ArgumentException ? App.T("not a valid image", "não é uma imagem válida") : ex.Message)); }
-            }
-
-            foreach (List<Source> icon in Group(sources))
-            {
-                try
-                {
-                    string name = icon.Count == 1 && icon[0].BaseName == "" ? icon[0].FileName : icon[0].BaseName;
-                    if (name == "") name = FolderName(icon[0].Dir);
-                    string dest = FreeName(icon[0].Dir, name, ".ico");
-                    File.WriteAllBytes(dest, BuildIco(icon));
-                    SHChangeNotify(0x00000002, 0x0005, dest, IntPtr.Zero); // SHCNE_CREATE, SHCNF_PATHW
-                    if (quiet) Console.WriteLine(dest);
-                }
-                catch (Exception ex) { errors.Add(Path.GetFileName(icon[0].Path) + ": " + ex.Message); }
-            }
-            return errors.Count == 0 ? 0 : Fail(string.Join("\n", errors));
+            Job job = new Job { Error = (path, message) => errors.Add(Path.GetFileName(path) + ": " + message) };
+            if (quiet) job.Created = Console.WriteLine;
+            action(job);
+            return errors.Count == 0 ? 0 : Fail(errorTitle + string.Join("\n", errors));
         }
 
-        static string FolderName(string dir) { return new DirectoryInfo(dir).Name.TrimEnd('\\', ':'); }
+        static int MakeIcons(List<string> paths) { return Run("", job => Converter.CreateIcons(paths, job)); }
 
-        static bool IsIco(string path) { return Path.GetExtension(path).Equals(".ico", StringComparison.OrdinalIgnoreCase); }
-
-        [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]
-        static extern int StrCmpLogicalW(string a, string b);
-
-        /// <summary>
-        /// Todos os .ico numa biblioteca só, com o nome da pasta e na ordem dos nomes, como o Explorer
-        /// mostra ("2" antes de "10"). Se algum for inválido não gera nada: faltaria um em silêncio.
-        /// </summary>
         static int MakeLibrary(List<string> paths)
         {
-            List<string> files = paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            files.Sort((a, b) =>
+            return Run(App.T("The library was not created:", "A biblioteca não foi criada:") + "\n\n", job => Converter.CreateLibrary(paths, job, null));
+        }
+
+        static int ChooseAndAdd(List<string> paths)
+        {
+            // A janela dona fica por cima: aberto pelo Explorer, o diálogo poderia nascer atrás dele.
+            using (Form owner = new Form { TopMost = true, ShowInTaskbar = false, Opacity = 0, FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.CenterScreen })
+            using (OpenFileDialog d = new OpenFileDialog())
             {
-                int c = StrCmpLogicalW(Path.GetFileName(a), Path.GetFileName(b));
-                return c != 0 ? c : StrCmpLogicalW(a, b);
+                d.Title = App.T("Choose the icon library", "Escolha a biblioteca de ícones");
+                d.Filter = App.T("Icon library", "Biblioteca de ícones") + " (*.dll)|*.dll";
+                d.InitialDirectory = Path.GetDirectoryName(Path.GetFullPath(paths[0]));
+                owner.Show();
+                owner.Activate();
+                return d.ShowDialog(owner) == DialogResult.OK ? AddToLibrary(d.FileName, paths) : 0;
+            }
+        }
+
+        static int AddToLibrary(string dll, List<string> paths)
+        {
+            return Run(App.T("The library was not changed:", "A biblioteca não foi alterada:") + "\n\n", job =>
+            {
+                string result = Converter.AddToLibrary(dll, paths, job);
+                if (result == null) return;
+                if (quiet) Console.WriteLine(result);
+                Info(result);
             });
-            List<byte[]> icos = new List<byte[]>();
-            List<string> errors = new List<string>();
-            foreach (string f in files)
-            {
-                try
-                {
-                    byte[] ico = File.ReadAllBytes(f);
-                    IconLibrary.Build(new[] { ico }); // valida
-                    icos.Add(ico);
-                }
-                catch (Exception ex) { errors.Add(Path.GetFileName(f) + ": " + ex.Message); }
-            }
-            if (errors.Count > 0)
-                return Fail(App.T("The library was not created:", "A biblioteca não foi criada:") + "\n\n" + string.Join("\n", errors));
-
-            string dir = Path.GetDirectoryName(files[0]);
-            string dest = FreeName(dir, FolderName(dir), ".dll");
-            File.WriteAllBytes(dest, IconLibrary.Build(icos));
-            SHChangeNotify(0x00000002, 0x0005, dest, IntPtr.Zero); // SHCNE_CREATE, SHCNF_PATHW
-            if (quiet) Console.WriteLine(dest);
-            return 0;
         }
 
-        /// <summary>
-        /// Mesma pasta + mesmo nome fora o tamanho = um ícone só ("logo-32.png", "logo-16.png" e até um
-        /// "logo.svg" junto). Se não dá para saber qual imagem vale, cada uma vira o seu ícone.
-        /// </summary>
-        static IEnumerable<List<Source>> Group(List<Source> sources)
-        {
-            foreach (var g in sources.GroupBy(s => (s.Dir + "|" + s.BaseName).ToLowerInvariant()))
-            {
-                List<Source> sized = g.Where(s => s.HasSizeInName).ToList(), plain = g.Where(s => !s.HasSizeInName).ToList();
-                List<Source> all = sized.Concat(plain).ToList();
-                if (plain.Count <= 1 && !Clash(all)) { yield return all; continue; }
-                foreach (Source s in plain) yield return new List<Source> { s };
-                if (sized.Count > 0 && !Clash(sized)) { yield return sized; continue; }
-                foreach (Source s in sized)
-                {
-                    s.BaseName = s.FileName; // sozinha, mantém o nome inteiro
-                    yield return new List<Source> { s };
-                }
-            }
-        }
-
-        static bool Clash(List<Source> l) { return l.Select(s => s.Size).Distinct().Count() != l.Count; }
-        static string FreeName(string dir, string name, string ext)
-        {
-            string p = Path.Combine(dir, name + ext);
-            for (int i = 2; File.Exists(p); i++) p = Path.Combine(dir, name + " (" + i + ")" + ext);
-            return p;
-        }
-
-        static byte[] BuildIco(List<Source> sources)
-        {
-            Source master = sources.OrderByDescending(s => s.Size).First();
-            SortedDictionary<int, FloatImage> frames = new SortedDictionary<int, FloatImage>();
-            foreach (Source s in sources) if (s.Size <= MaxFrame) frames[s.Size] = s.Image; // intocados
-            foreach (int size in StandardSizes)
-                if (!frames.ContainsKey(size) && size < master.Size) // nunca amplia
-                    // Lanczos é o mais parecido com o Photoshop, mas em desenho chapado cria um contorno
-                    // claro nas bordas; no SVG a cobertura exata fica suave sem alterar as cores.
-                    frames[size] = Resampler.Resize(master.Image, size, master.Vector ? Kernel.Box : Kernel.Lanczos3);
-
-            List<KeyValuePair<int, byte[]>> blobs = frames.OrderByDescending(f => f.Key)
-                .Select(f => new KeyValuePair<int, byte[]>(f.Key, f.Key >= MaxFrame ? PngFrame(f.Value) : BmpFrame(f.Value))).ToList();
-
-            using (MemoryStream ms = new MemoryStream())
-            using (BinaryWriter w = new BinaryWriter(ms))
-            {
-                w.Write((short)0); w.Write((short)1); w.Write((short)blobs.Count);
-                int offset = 6 + 16 * blobs.Count;
-                foreach (var b in blobs)
-                {
-                    byte dim = (byte)(b.Key >= 256 ? 0 : b.Key); // 0 significa 256
-                    w.Write(dim); w.Write(dim); w.Write((byte)0); w.Write((byte)0);
-                    w.Write((short)1); w.Write((short)32);
-                    w.Write(b.Value.Length); w.Write(offset);
-                    offset += b.Value.Length;
-                }
-                foreach (var b in blobs) w.Write(b.Value);
-                w.Flush();
-                return ms.ToArray();
-            }
-        }
-
-        static byte[] PngFrame(FloatImage im)
-        {
-            using (Bitmap b = new Bitmap(im.W, im.H, PixelFormat.Format32bppArgb))
-            using (MemoryStream ms = new MemoryStream())
-            {
-                byte[] px = im.ToBgra();
-                BitmapData bd = b.LockBits(new Rectangle(0, 0, im.W, im.H), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-                Marshal.Copy(px, 0, bd.Scan0, px.Length);
-                b.UnlockBits(bd);
-                b.Save(ms, ImageFormat.Png);
-                return ms.ToArray();
-            }
-        }
-
-        /// <summary>DIB de 32 bits + máscara AND: o formato mais compatível para frames pequenos.</summary>
-        static byte[] BmpFrame(FloatImage im)
-        {
-            int n = im.W, maskStride = (n + 31) / 32 * 4;
-            byte[] px = im.ToBgra(), mask = new byte[maskStride * n];
-            using (MemoryStream ms = new MemoryStream())
-            using (BinaryWriter w = new BinaryWriter(ms))
-            {
-                w.Write(40); w.Write(n); w.Write(n * 2); // altura dobrada: imagem + máscara
-                w.Write((short)1); w.Write((short)32); w.Write(0);
-                w.Write(px.Length + mask.Length);
-                w.Write(0); w.Write(0); w.Write(0); w.Write(0);
-                for (int y = n - 1; y >= 0; y--) w.Write(px, y * n * 4, n * 4);
-                for (int y = 0; y < n; y++)
-                    for (int x = 0; x < n; x++)
-                        if (px[(y * n + x) * 4 + 3] == 0) mask[(n - 1 - y) * maskStride + x / 8] |= (byte)(0x80 >> (x % 8));
-                w.Write(mask);
-                w.Flush();
-                return ms.ToArray();
-            }
-        }
+        static bool IsIco(string path) { return Path.GetExtension(path).Equals(".ico", StringComparison.OrdinalIgnoreCase); }
     }
 }

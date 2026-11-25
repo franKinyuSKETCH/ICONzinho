@@ -21,13 +21,32 @@
 // Precisa ser igual à do AppxManifest.xml. A compilação de teste usa outra.
 #ifdef TEST
 static const CLSID CLSID_Menu = { 0x7c1f9b52, 0x3e0d, 0x4a86, { 0x9b, 0x41, 0x5d, 0x2e, 0x8f, 0x60, 0xa7, 0x1d } };
-static const CLSID CLSID_Library = { 0x7c1f9b52, 0x3e0d, 0x4a86, { 0x9b, 0x41, 0x5d, 0x2e, 0x8f, 0x60, 0xa7, 0x2d } };
+static const CLSID CLSID_Group = { 0x7c1f9b52, 0x3e0d, 0x4a86, { 0x9b, 0x41, 0x5d, 0x2e, 0x8f, 0x60, 0xa7, 0x2d } };
 #else
 static const CLSID CLSID_Menu = { 0x7c1f9b52, 0x3e0d, 0x4a86, { 0x9b, 0x41, 0x5d, 0x2e, 0x8f, 0x60, 0xa7, 0x1c } };
-static const CLSID CLSID_Library = { 0x7c1f9b52, 0x3e0d, 0x4a86, { 0x9b, 0x41, 0x5d, 0x2e, 0x8f, 0x60, 0xa7, 0x2c } };
+static const CLSID CLSID_Group = { 0x7c1f9b52, 0x3e0d, 0x4a86, { 0x9b, 0x41, 0x5d, 0x2e, 0x8f, 0x60, 0xa7, 0x2c } };
 #endif
 
 static long g_refs = 0;
+
+struct Action
+{
+    const CLSID& clsid;
+    const wchar_t *en, *pt, *option; // option nula = grupo, que abre o submenu g_children
+};
+
+// Imagens têm um comando só; os .ico têm um grupo. Com dois comandos soltos no manifesto, o Windows
+// cria o grupo por conta própria e mostra nele um ícone de folha em branco.
+static const Action g_actions[] = {
+    { CLSID_Menu, L"Create icon (.ico)", L"Criar ícone (.ico)", L"--stdin" },
+    { CLSID_Group, APP_NAME, APP_NAME, nullptr },
+};
+
+static const Action g_children[] = {
+    { GUID_NULL, L"Create icon library (.dll)", L"Criar biblioteca de ícones (.dll)", L"--stdin-lib" },
+    { GUID_NULL, L"Add to icon library...", L"Adicionar à biblioteca de ícones...", L"--stdin-add" },
+};
+static const ULONG CHILDREN = ARRAYSIZE(g_children);
 
 static std::wstring ExePath()
 {
@@ -85,6 +104,7 @@ static HRESULT Launch(const std::string& paths, const wchar_t* option)
         std::wstring cmd = L"\"" + exe + L"\" " + option;
         if (CreateProcessW(exe.c_str(), &cmd[0], nullptr, nullptr, TRUE, EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &si.StartupInfo, &pi))
         {
+            AllowSetForegroundWindow(pi.dwProcessId); // para o diálogo abrir na frente
             CloseHandle(rd);
             rd = nullptr;
             hr = S_OK;
@@ -107,14 +127,16 @@ static HRESULT Launch(const std::string& paths, const wchar_t* option)
     return hr;
 }
 
+static HRESULT CreateChildren(IEnumExplorerCommand** out);
+
 class Command : public IExplorerCommand
 {
     long refs = 1;
-    const bool library; // .ico -> biblioteca .dll
+    const Action& action;
     ~Command() { InterlockedDecrement(&g_refs); }
 
 public:
-    explicit Command(bool lib) : library(lib) { InterlockedIncrement(&g_refs); }
+    explicit Command(const Action& a) : action(a) { InterlockedIncrement(&g_refs); }
 
     IFACEMETHODIMP QueryInterface(REFIID iid, void** out)
     {
@@ -126,20 +148,21 @@ public:
     IFACEMETHODIMP_(ULONG) AddRef() { return InterlockedIncrement(&refs); }
     IFACEMETHODIMP_(ULONG) Release() { long r = InterlockedDecrement(&refs); if (!r) delete this; return r; }
 
-    IFACEMETHODIMP GetTitle(IShellItemArray*, LPWSTR* out) 
-    {
-        if (library) return SHStrDupW(Portuguese() ? L"Criar biblioteca de ícones (.dll)" : L"Create icon library (.dll)", out);
-        return SHStrDupW(Portuguese() ? L"Criar ícone (.ico)" : L"Create icon (.ico)", out);
-    }
+    IFACEMETHODIMP GetTitle(IShellItemArray*, LPWSTR* out) { return SHStrDupW(Portuguese() ? action.pt : action.en, out); }
     IFACEMETHODIMP GetIcon(IShellItemArray*, LPWSTR* out) { return SHStrDupW((ExePath() + L",0").c_str(), out); }
     IFACEMETHODIMP GetToolTip(IShellItemArray*, LPWSTR* out) { *out = nullptr; return E_NOTIMPL; }
-    IFACEMETHODIMP GetCanonicalName(GUID* out) { *out = library ? CLSID_Library : CLSID_Menu; return S_OK; }
+    IFACEMETHODIMP GetCanonicalName(GUID* out) { *out = action.clsid; return S_OK; }
     IFACEMETHODIMP GetState(IShellItemArray*, BOOL, EXPCMDSTATE* out) { *out = ECS_ENABLED; return S_OK; }
-    IFACEMETHODIMP GetFlags(EXPCMDFLAGS* out) { *out = ECF_DEFAULT; return S_OK; }
-    IFACEMETHODIMP EnumSubCommands(IEnumExplorerCommand** out) { *out = nullptr; return E_NOTIMPL; }
+    IFACEMETHODIMP GetFlags(EXPCMDFLAGS* out) { *out = action.option ? ECF_DEFAULT : ECF_HASSUBCOMMANDS; return S_OK; }
+    IFACEMETHODIMP EnumSubCommands(IEnumExplorerCommand** out)
+    {
+        *out = nullptr;
+        return action.option ? E_NOTIMPL : CreateChildren(out);
+    }
 
     IFACEMETHODIMP Invoke(IShellItemArray* items, IBindCtx*)
     {
+        if (!action.option) return E_NOTIMPL;
         if (!items) return E_INVALIDARG;
         DWORD n = 0;
         HRESULT hr = items->GetCount(&n);
@@ -160,16 +183,54 @@ public:
             CoTaskMemFree(p);
             if (item) item->Release();
         }
-        return paths.empty() ? E_FAIL : Launch(paths, library ? L"--stdin-lib" : L"--stdin");
+        return paths.empty() ? E_FAIL : Launch(paths, action.option);
     }
 };
 
-class Factory : public IClassFactory
+class Children : public IEnumExplorerCommand
 {
-    const bool library;
+    long refs = 1;
+    ULONG next;
+    ~Children() { InterlockedDecrement(&g_refs); }
 
 public:
-    explicit Factory(bool lib) : library(lib) {}
+    explicit Children(ULONG n) : next(n) { InterlockedIncrement(&g_refs); }
+
+    IFACEMETHODIMP QueryInterface(REFIID iid, void** out)
+    {
+        if (!out) return E_POINTER;
+        if (iid == IID_IUnknown || iid == __uuidof(IEnumExplorerCommand)) { *out = static_cast<IEnumExplorerCommand*>(this); AddRef(); return S_OK; }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    IFACEMETHODIMP_(ULONG) AddRef() { return InterlockedIncrement(&refs); }
+    IFACEMETHODIMP_(ULONG) Release() { long r = InterlockedDecrement(&refs); if (!r) delete this; return r; }
+
+    IFACEMETHODIMP Next(ULONG count, IExplorerCommand** out, ULONG* fetched)
+    {
+        ULONG n = 0;
+        for (; n < count && next < CHILDREN; n++, next++)
+            if (!(out[n] = new (std::nothrow) Command(g_children[next]))) break;
+        if (fetched) *fetched = n;
+        return n == count ? S_OK : S_FALSE;
+    }
+    IFACEMETHODIMP Skip(ULONG count) { next += count; return next <= CHILDREN ? S_OK : S_FALSE; }
+    IFACEMETHODIMP Reset() { next = 0; return S_OK; }
+    IFACEMETHODIMP Clone(IEnumExplorerCommand** out) { *out = new (std::nothrow) Children(next); return *out ? S_OK : E_OUTOFMEMORY; }
+};
+
+static HRESULT CreateChildren(IEnumExplorerCommand** out)
+{
+    *out = new (std::nothrow) Children(0);
+    return *out ? S_OK : E_OUTOFMEMORY;
+}
+
+class Factory : public IClassFactory
+{
+    const Action& action;
+
+public:
+    explicit Factory(const Action& a) : action(a) {}
     IFACEMETHODIMP QueryInterface(REFIID iid, void** out)
     {
         if (!out) return E_POINTER;
@@ -183,7 +244,7 @@ public:
     {
         *out = nullptr;
         if (outer) return CLASS_E_NOAGGREGATION;
-        Command* c = new (std::nothrow) Command(library);
+        Command* c = new (std::nothrow) Command(action);
         if (!c) return E_OUTOFMEMORY;
         HRESULT hr = c->QueryInterface(iid, out);
         c->Release();
@@ -192,12 +253,12 @@ public:
     IFACEMETHODIMP LockServer(BOOL lock) { lock ? InterlockedIncrement(&g_refs) : InterlockedDecrement(&g_refs); return S_OK; }
 };
 
-static Factory g_menu(false), g_library(true);
+static Factory g_factories[] = { Factory(g_actions[0]), Factory(g_actions[1]) };
 
 extern "C" __declspec(dllexport) HRESULT STDAPICALLTYPE DllGetClassObject(REFCLSID clsid, REFIID iid, void** out)
 {
-    if (clsid == CLSID_Menu) return g_menu.QueryInterface(iid, out);
-    if (clsid == CLSID_Library) return g_library.QueryInterface(iid, out);
+    for (int i = 0; i < 2; i++)
+        if (clsid == g_actions[i].clsid) return g_factories[i].QueryInterface(iid, out);
     *out = nullptr;
     return CLASS_E_CLASSNOTAVAILABLE;
 }
