@@ -1,0 +1,6 @@
+# executaveis vao em Releases
+dist/
+
+# Windows e Google Drive
+desktop.ini
+Thumbs.db

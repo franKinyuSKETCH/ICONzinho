@@ -1,0 +1,53 @@
+using System;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using Microsoft.Win32;
+
+namespace Iconzinho
+{
+    /// <summary>O que o programa e o instalador compartilham: nomes, caminhos, chaves e idioma.</summary>
+    static class App
+    {
+        public const string Version = "1.1.0";
+        public const string Author = "frankinyu_SKETCH";
+        public static readonly string[] Extensions = { ".png", ".jpg", ".jpeg", ".webp", ".svg", ".bmp", ".gif" };
+
+#if TEST    // compilação de teste: registro e pastas à parte, não toca na instalação real
+        public const string Name = "ICONzinhoTest";
+        const string Root = @"Software\ICONzinhoTest\HKCU\";
+#else
+        public const string Name = "ICONzinho";
+        const string Root = "";
+#endif
+        public const string PackageName = "frankinyuSKETCH." + Name; // igual ao AppxManifest.xml
+        public static readonly string[] VerbKeys = Extensions.Select(
+            e => Root + @"Software\Classes\SystemFileAssociations\" + e + @"\shell\" + Name).ToArray();
+        public const string UninstallKey = Root + @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + Name;
+        public const string SettingsKey = Root + @"Software\" + Name;
+
+        static readonly string Local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        public static readonly string InstallDir = Path.Combine(Local, "Programs", Name);
+        public static readonly string ExePath = Path.Combine(InstallDir, Name + ".exe");
+        public static readonly string DataDir = Path.Combine(Local, Name);
+        public static readonly string QueueDir = Path.Combine(DataDir, "queue");
+
+        /// <summary>"en" ou "pt": o escolhido na instalação ou, sem instalação, o do Windows.</summary>
+        public static string Language = SavedLanguage() ?? SystemLanguage();
+
+        public static string T(string en, string pt) { return Language == "pt" ? pt : en; }
+
+        public static string MenuText { get { return T("Create icon (.ico)", "Criar ícone (.ico)"); } }
+
+        static string SavedLanguage()
+        {
+            using (RegistryKey k = Registry.CurrentUser.OpenSubKey(SettingsKey))
+                return k == null ? null : k.GetValue("Language") as string;
+        }
+
+        static string SystemLanguage()
+        {
+            return CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "pt" ? "pt" : "en";
+        }
+    }
+}

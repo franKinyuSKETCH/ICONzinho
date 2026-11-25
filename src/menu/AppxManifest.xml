@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- O OID no Publisher é o que o Windows 11 exige de um pacote sem assinatura. -->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+         xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+         xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+         IgnorableNamespaces="uap rescap com desktop4 desktop5">
+  <Identity Name="frankinyuSKETCH.ICONzinho" Version="{VERSION}" ProcessorArchitecture="x64"
+            Publisher="CN=frankinyu_SKETCH, OID.2.25.311729368913984317654407730594956997722=1"/>
+  <Properties>
+    <DisplayName>ICONzinho</DisplayName>
+    <PublisherDisplayName>frankinyu_SKETCH</PublisherDisplayName>
+    <Logo>logo150.png</Logo>
+  </Properties>
+  <Resources><Resource Language="en-us"/></Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0"/>
+  </Dependencies>
+  <Capabilities><rescap:Capability Name="runFullTrust"/></Capabilities>
+  <Applications>
+    <Application Id="App" Executable="ICONzinho.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="ICONzinho" Description="ICONzinho" BackgroundColor="transparent"
+                          Square150x150Logo="logo150.png" Square44x44Logo="logo44.png" AppListEntry="none"/>
+      <Extensions>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="ICONzinho">
+              <com:Class Id="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c" Path="IconzinhoMenu.dll" ThreadingModel="STA"/>
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop4:ItemType Type=".png"><desktop4:Verb Id="ICONzinho" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c"/></desktop4:ItemType>
+            <desktop4:ItemType Type=".jpg"><desktop4:Verb Id="ICONzinho" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c"/></desktop4:ItemType>
+            <desktop4:ItemType Type=".jpeg"><desktop4:Verb Id="ICONzinho" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c"/></desktop4:ItemType>
+            <desktop4:ItemType Type=".webp"><desktop4:Verb Id="ICONzinho" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c"/></desktop4:ItemType>
+            <desktop4:ItemType Type=".svg"><desktop4:Verb Id="ICONzinho" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c"/></desktop4:ItemType>
+            <desktop4:ItemType Type=".bmp"><desktop4:Verb Id="ICONzinho" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c"/></desktop4:ItemType>
+            <desktop4:ItemType Type=".gif"><desktop4:Verb Id="ICONzinho" Clsid="7c1f9b52-3e0d-4a86-9b41-5d2e8f60a71c"/></desktop4:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>
