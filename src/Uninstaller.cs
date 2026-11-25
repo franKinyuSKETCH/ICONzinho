@@ -15,6 +15,7 @@ namespace Iconzinho
         {
             MenuPackage.Remove();
             foreach (string key in App.VerbKeys) Registry.CurrentUser.DeleteSubKeyTree(key, false);
+            Registry.CurrentUser.DeleteSubKeyTree(App.LibraryVerbKey, false);
             Registry.CurrentUser.DeleteSubKeyTree(App.UninstallKey, false);
             Registry.CurrentUser.DeleteSubKeyTree(App.SettingsKey, false);
             SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); // SHCNE_ASSOCCHANGED

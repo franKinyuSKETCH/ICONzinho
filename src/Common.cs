@@ -9,7 +9,7 @@ namespace Iconzinho
     /// <summary>O que o programa e o instalador compartilham: nomes, caminhos, chaves e idioma.</summary>
     static class App
     {
-        public const string Version = "1.1.0";
+        public const string Version = "1.2.0";
         public const string Author = "frankinyu_SKETCH";
         public static readonly string[] Extensions = { ".png", ".jpg", ".jpeg", ".webp", ".svg", ".bmp", ".gif" };
 
@@ -26,6 +26,8 @@ namespace Iconzinho
         public const string UninstallKey = Root + @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + Name;
         public const string SettingsKey = Root + @"Software\" + Name;
 
+        public const string LibraryVerbKey = Root + @"Software\Classes\SystemFileAssociations\.ico\shell\" + Name;
+
         static readonly string Local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         public static readonly string InstallDir = Path.Combine(Local, "Programs", Name);
         public static readonly string ExePath = Path.Combine(InstallDir, Name + ".exe");
@@ -38,6 +40,8 @@ namespace Iconzinho
         public static string T(string en, string pt) { return Language == "pt" ? pt : en; }
 
         public static string MenuText { get { return T("Create icon (.ico)", "Criar ícone (.ico)"); } }
+
+        public static string LibraryText { get { return T("Create icon library (.dll)", "Criar biblioteca de ícones (.dll)"); } }
 
         static string SavedLanguage()
         {

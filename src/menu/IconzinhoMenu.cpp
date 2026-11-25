@@ -21,8 +21,10 @@
 // Precisa ser igual à do AppxManifest.xml. A compilação de teste usa outra.
 #ifdef TEST
 static const CLSID CLSID_Menu = { 0x7c1f9b52, 0x3e0d, 0x4a86, { 0x9b, 0x41, 0x5d, 0x2e, 0x8f, 0x60, 0xa7, 0x1d } };
+static const CLSID CLSID_Library = { 0x7c1f9b52, 0x3e0d, 0x4a86, { 0x9b, 0x41, 0x5d, 0x2e, 0x8f, 0x60, 0xa7, 0x2d } };
 #else
 static const CLSID CLSID_Menu = { 0x7c1f9b52, 0x3e0d, 0x4a86, { 0x9b, 0x41, 0x5d, 0x2e, 0x8f, 0x60, 0xa7, 0x1c } };
+static const CLSID CLSID_Library = { 0x7c1f9b52, 0x3e0d, 0x4a86, { 0x9b, 0x41, 0x5d, 0x2e, 0x8f, 0x60, 0xa7, 0x2c } };
 #endif
 
 static long g_refs = 0;
@@ -53,7 +55,7 @@ static bool Portuguese()
 
 // Abre o exe fora do contêiner do pacote (senão o AppData dele seria redirecionado) e entrega os
 // caminhos pela entrada padrão, um por linha, para não esbarrar no limite da linha de comando.
-static HRESULT Launch(const std::string& paths)
+static HRESULT Launch(const std::string& paths, const wchar_t* option)
 {
     std::wstring exe = ExePath();
     if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
@@ -80,7 +82,7 @@ static HRESULT Launch(const std::string& paths)
         si.StartupInfo.hStdInput = rd;
         si.lpAttributeList = list;
         PROCESS_INFORMATION pi = {};
-        std::wstring cmd = L"\"" + exe + L"\" --stdin";
+        std::wstring cmd = L"\"" + exe + L"\" " + option;
         if (CreateProcessW(exe.c_str(), &cmd[0], nullptr, nullptr, TRUE, EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &si.StartupInfo, &pi))
         {
             CloseHandle(rd);
@@ -108,10 +110,11 @@ static HRESULT Launch(const std::string& paths)
 class Command : public IExplorerCommand
 {
     long refs = 1;
+    const bool library; // .ico -> biblioteca .dll
     ~Command() { InterlockedDecrement(&g_refs); }
 
 public:
-    Command() { InterlockedIncrement(&g_refs); }
+    explicit Command(bool lib) : library(lib) { InterlockedIncrement(&g_refs); }
 
     IFACEMETHODIMP QueryInterface(REFIID iid, void** out)
     {
@@ -123,10 +126,14 @@ public:
     IFACEMETHODIMP_(ULONG) AddRef() { return InterlockedIncrement(&refs); }
     IFACEMETHODIMP_(ULONG) Release() { long r = InterlockedDecrement(&refs); if (!r) delete this; return r; }
 
-    IFACEMETHODIMP GetTitle(IShellItemArray*, LPWSTR* out) { return SHStrDupW(Portuguese() ? L"Criar ícone (.ico)" : L"Create icon (.ico)", out); }
+    IFACEMETHODIMP GetTitle(IShellItemArray*, LPWSTR* out) 
+    {
+        if (library) return SHStrDupW(Portuguese() ? L"Criar biblioteca de ícones (.dll)" : L"Create icon library (.dll)", out);
+        return SHStrDupW(Portuguese() ? L"Criar ícone (.ico)" : L"Create icon (.ico)", out);
+    }
     IFACEMETHODIMP GetIcon(IShellItemArray*, LPWSTR* out) { return SHStrDupW((ExePath() + L",0").c_str(), out); }
     IFACEMETHODIMP GetToolTip(IShellItemArray*, LPWSTR* out) { *out = nullptr; return E_NOTIMPL; }
-    IFACEMETHODIMP GetCanonicalName(GUID* out) { *out = CLSID_Menu; return S_OK; }
+    IFACEMETHODIMP GetCanonicalName(GUID* out) { *out = library ? CLSID_Library : CLSID_Menu; return S_OK; }
     IFACEMETHODIMP GetState(IShellItemArray*, BOOL, EXPCMDSTATE* out) { *out = ECS_ENABLED; return S_OK; }
     IFACEMETHODIMP GetFlags(EXPCMDFLAGS* out) { *out = ECF_DEFAULT; return S_OK; }
     IFACEMETHODIMP EnumSubCommands(IEnumExplorerCommand** out) { *out = nullptr; return E_NOTIMPL; }
@@ -153,13 +160,16 @@ public:
             CoTaskMemFree(p);
             if (item) item->Release();
         }
-        return paths.empty() ? E_FAIL : Launch(paths);
+        return paths.empty() ? E_FAIL : Launch(paths, library ? L"--stdin-lib" : L"--stdin");
     }
 };
 
 class Factory : public IClassFactory
 {
+    const bool library;
+
 public:
+    explicit Factory(bool lib) : library(lib) {}
     IFACEMETHODIMP QueryInterface(REFIID iid, void** out)
     {
         if (!out) return E_POINTER;
@@ -173,7 +183,7 @@ public:
     {
         *out = nullptr;
         if (outer) return CLASS_E_NOAGGREGATION;
-        Command* c = new (std::nothrow) Command();
+        Command* c = new (std::nothrow) Command(library);
         if (!c) return E_OUTOFMEMORY;
         HRESULT hr = c->QueryInterface(iid, out);
         c->Release();
@@ -182,11 +192,12 @@ public:
     IFACEMETHODIMP LockServer(BOOL lock) { lock ? InterlockedIncrement(&g_refs) : InterlockedDecrement(&g_refs); return S_OK; }
 };
 
-static Factory g_factory;
+static Factory g_menu(false), g_library(true);
 
 extern "C" __declspec(dllexport) HRESULT STDAPICALLTYPE DllGetClassObject(REFCLSID clsid, REFIID iid, void** out)
 {
-    if (clsid == CLSID_Menu) return g_factory.QueryInterface(iid, out);
+    if (clsid == CLSID_Menu) return g_menu.QueryInterface(iid, out);
+    if (clsid == CLSID_Library) return g_library.QueryInterface(iid, out);
     *out = nullptr;
     return CLASS_E_CLASSNOTAVAILABLE;
 }

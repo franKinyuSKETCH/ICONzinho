@@ -19,7 +19,7 @@ $shared = @("$s\Common.cs", "$s\AssemblyInfo.cs", "$s\Uninstaller.cs", "$s\MenuP
 if ($Test) { $common += '/define:TEST' }
 
 # 1. programa
-& $csc @common "/out:$OutDir\ICONzinho.exe" /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Xaml.dll "$s\Program.cs" "$s\Loader.cs" "$s\Resampler.cs" @shared
+& $csc @common "/out:$OutDir\ICONzinho.exe" /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Xaml.dll "$s\Program.cs" "$s\Loader.cs" "$s\Resampler.cs" "$s\IconLibrary.cs" @shared
 Check 'ICONzinho.exe'
 
 # 2. DLL do menu novo
@@ -33,7 +33,7 @@ Check 'IconzinhoMenu.dll'
 # 3. pacote MSIX, com a mesma versao do programa
 $version = [regex]::Match([IO.File]::ReadAllText("$s\Common.cs"), 'Version = "([\d.]+)"').Groups[1].Value
 $xml = [IO.File]::ReadAllText("$s\menu\AppxManifest.xml").Replace('{VERSION}', "$version.0")
-if ($Test) { $xml = $xml.Replace('frankinyuSKETCH.ICONzinho', 'frankinyuSKETCH.ICONzinhoTest').Replace('5d2e8f60a71c', '5d2e8f60a71d').Replace('<DisplayName>ICONzinho<', '<DisplayName>ICONzinhoTest<').Replace('Id="ICONzinho"', 'Id="ICONzinhoTest"') }
+if ($Test) { $xml = $xml.Replace('frankinyuSKETCH.ICONzinho', 'frankinyuSKETCH.ICONzinhoTest').Replace('5d2e8f60a71c', '5d2e8f60a71d').Replace('5d2e8f60a72c', '5d2e8f60a72d').Replace('<DisplayName>ICONzinho<', '<DisplayName>ICONzinhoTest<').Replace('Id="ICONzinho', 'Id="ICONzinhoTest') }
 [IO.File]::WriteAllText("$obj\AppxManifest.xml", $xml)
 & $csc /nologo /codepage:65001 "/out:$obj\pack.exe" "$s\menu\Pack.cs"
 Check 'pack.exe'

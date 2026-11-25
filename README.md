@@ -16,6 +16,7 @@ Select one or more images, right-click, choose **Create icon (.ico)**. The icon 
 - Generates every size Windows asks for: 16, 20, 24, 32, 40, 48, 64, 96, 128 and 256.
 - Scales down smoothly, without jagged edges.
 - Keeps transparency.
+- Joins several `.ico` files into an icon library (`.dll`).
 - Never stretches: a non-square image is fitted and centered on a transparent square.
 - Never enlarges: an icon made from a 100×100 image has no 128 or 256.
 - Never overwrites: if `logo.ico` exists, it creates `logo (2).ico`.
@@ -70,6 +71,16 @@ Files in the same folder with the same name, apart from the size, become one ico
 
 **The number must be the real size of the image.** `photo2.png` stays `photo2`, and a `256.png` that is actually 300×300 becomes a separate icon.
 
+#### Icon library
+
+Select several `.ico` files, right-click and choose **Create icon library (.dll)**. The result opens in the *Change Icon* window of shortcuts and folders, with all the icons in one place.
+
+- The library is named after the folder, and the icons follow the order of the file names (`2` before `10`).
+- Icons are copied byte by byte, with all their sizes.
+- The DLL holds only resources, no code.
+- It is not updated later: to add icons, create it again. Windows points to an icon by its position, so a different order changes the icons of existing shortcuts.
+- If any file is not a valid `.ico`, nothing is created and the message says which one.
+
 ### Formats in detail
 
 | Format | Notes |
@@ -103,6 +114,7 @@ This creates `ICONzinho.exe` and `ICONzinho-Setup.exe` in the `dist` folder.
 | `Uninstaller.cs` | Removal |
 | `Loader.cs` | Reading of each format |
 | `Resampler.cs` | Scaling |
+| `IconLibrary.cs` | Icon library (`.dll`) writing |
 | `Common.cs` | Names, paths and language |
 | `Setup.cs` | Installer |
 | `MenuPackage.cs` | Installing and removing the new menu package |
@@ -132,6 +144,7 @@ Selecione uma ou mais imagens, clique com o botão direito e escolha **Criar íc
 - Gera todos os tamanhos que o Windows pede: 16, 20, 24, 32, 40, 48, 64, 96, 128 e 256.
 - Reduz com suavidade, sem serrilhado.
 - Mantém a transparência.
+- Junta vários `.ico` numa biblioteca de ícones (`.dll`).
 - Nunca estica: imagem não quadrada é encaixada e centralizada num quadrado transparente.
 - Nunca amplia: um ícone feito de uma imagem 100×100 não tem 128 nem 256.
 - Nunca sobrescreve: se `logo.ico` já existe, cria `logo (2).ico`.
@@ -186,6 +199,16 @@ Arquivos da mesma pasta com o mesmo nome, fora o tamanho, viram um ícone só:
 
 **O número precisa ser o tamanho real da imagem.** `foto2.png` continua `foto2`, e um `256.png` que na verdade tem 300×300 vira um ícone à parte.
 
+#### Biblioteca de ícones
+
+Selecione vários `.ico`, clique com o botão direito e escolha **Criar biblioteca de ícones (.dll)**. O resultado abre na janela *Alterar Ícone* de atalhos e pastas, com todos os ícones num lugar só.
+
+- A biblioteca leva o nome da pasta, e os ícones seguem a ordem dos nomes dos arquivos (`2` antes de `10`).
+- Os ícones são copiados byte a byte, com todos os tamanhos.
+- A DLL só tem recursos, sem código.
+- Ela não é atualizada depois: para acrescentar ícones, crie de novo. O Windows aponta para um ícone pela posição, então mudar a ordem troca os ícones dos atalhos existentes.
+- Se algum arquivo não for um `.ico` válido, nada é criado e a mensagem diz qual é.
+
 ### Formatos em detalhe
 
 | Formato | Observações |
@@ -219,6 +242,7 @@ Gera `ICONzinho.exe` e `ICONzinho-Setup.exe` na pasta `dist`.
 | `Uninstaller.cs` | Remoção |
 | `Loader.cs` | Leitura de cada formato |
 | `Resampler.cs` | Redimensionamento |
+| `IconLibrary.cs` | Gravação da biblioteca (`.dll`) |
 | `Common.cs` | Nomes, caminhos e idioma |
 | `Setup.cs` | Instalador |
 | `MenuPackage.cs` | Instalação e remoção do pacote do menu novo |

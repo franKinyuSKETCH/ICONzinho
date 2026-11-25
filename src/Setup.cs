@@ -99,16 +99,9 @@ namespace Iconzinho
             using (RegistryKey k = Registry.CurrentUser.CreateSubKey(App.SettingsKey))
                 k.SetValue("Language", App.Language);
 
-            foreach (string key in App.VerbKeys)
-            if ((menus & Menus.Classic) == 0) Registry.CurrentUser.DeleteSubKeyTree(key, false);
-            else using (RegistryKey k = Registry.CurrentUser.CreateSubKey(key))
-            {
-                k.SetValue("MUIVerb", App.MenuText);
-                k.SetValue("Icon", "\"" + App.ExePath + "\"");
-                k.SetValue("MultiSelectModel", "Player"); // sem isso o item some acima de 15 arquivos
-                using (RegistryKey c = k.CreateSubKey("command"))
-                    c.SetValue("", "\"" + App.ExePath + "\" --queue \"%1\"");
-            }
+            bool classic = (menus & Menus.Classic) != 0;
+            foreach (string key in App.VerbKeys) SetVerb(classic, key, App.MenuText, "--queue");
+            SetVerb(classic, App.LibraryVerbKey, App.LibraryText, "--queue-lib");
 
             // É esta chave que faz o programa aparecer em Configurações > Aplicativos instalados.
             using (RegistryKey k = Registry.CurrentUser.CreateSubKey(App.UninstallKey))
@@ -126,6 +119,23 @@ namespace Iconzinho
                 k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
             }
             SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero); // SHCNE_ASSOCCHANGED
+        }
+
+        static void SetVerb(bool on, string key, string text, string command)
+        {
+            if (!on)
+            {
+                Registry.CurrentUser.DeleteSubKeyTree(key, false);
+                return;
+            }
+            using (RegistryKey k = Registry.CurrentUser.CreateSubKey(key))
+            {
+                k.SetValue("MUIVerb", text);
+                k.SetValue("Icon", "\"" + App.ExePath + "\"");
+                k.SetValue("MultiSelectModel", "Player"); // sem isso o item some acima de 15 arquivos
+                using (RegistryKey c = k.CreateSubKey("command"))
+                    c.SetValue("", "\"" + App.ExePath + "\" " + command + " \"%1\"");
+            }
         }
 
         static void AddPackage()
@@ -187,7 +197,7 @@ namespace Iconzinho
             // só aparecem na segunda tela
             tipsTitle.Bounds = new Rectangle(24, 222, 412, 22);
             tipsTitle.Font = new Font("Segoe UI Semibold", 9.75f);
-            tips.Bounds = new Rectangle(24, 246, 412, 196);
+            tips.Bounds = new Rectangle(24, 246, 412, 252);
             tipsTitle.Visible = tips.Visible = false;
 
             Panel bar = new Panel { Bounds = new Rectangle(0, 334, 460, 50), BackColor = Color.FromArgb(243, 243, 243), Dock = DockStyle.Bottom };
@@ -304,11 +314,13 @@ namespace Iconzinho
                     "•  One art per size: select 512.png, 256.png, 48.png, 16.png… together to get a single icon that uses your own art at each size. The number must be the image's real size.\n\n" +
                     "•  logo-32.png, logo-16.png… also works, and adding logo.svg fills in the missing sizes.\n\n" +
                     "•  Images with different names become one icon each.\n\n" +
-                    "•  Non-square images are fitted and centered, never stretched.",
+                    "•  Non-square images are fitted and centered, never stretched.\n\n" +
+                    "•  Select several .ico files to create an icon library (.dll) for the \"Change Icon\" window.",
                     "•  Uma arte por tamanho: selecione 512.png, 256.png, 48.png, 16.png… juntos e saia com um único ícone, com a sua arte em cada tamanho. O número deve ser o tamanho real da imagem.\n\n" +
                     "•  logo-32.png, logo-16.png… também funciona, e um logo.svg junto completa os tamanhos que faltarem.\n\n" +
                     "•  Imagens com nomes diferentes viram um ícone cada.\n\n" +
-                    "•  Imagem não quadrada é encaixada e centralizada, sem esticar.");
+                    "•  Imagem não quadrada é encaixada e centralizada, sem esticar.\n\n" +
+                    "•  Selecione vários .ico para criar uma biblioteca de ícones (.dll) para a janela \"Alterar Ícone\".");
                 ok.Text = App.T("Close", "Fechar");
             }
         }

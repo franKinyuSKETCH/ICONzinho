@@ -41,10 +41,12 @@ namespace Iconzinho
                 switch (args[0])
                 {
                     case "--uninstall": return Uninstall();
-                    case "--queue": return RunQueued(args[1]); // menu clássico
+                    case "--queue": return RunQueued(args[1], App.QueueDir, Convert); // menu clássico
+                    case "--queue-lib": return RunQueued(args[1], Path.Combine(App.QueueDir, "lib"), MakeLibrary);
                     case "--add-package": return MenuPackage.AddFromElevated(args[1], args[2]);
                     case "--stdin": return Convert(ReadStdin()); // menu novo do Windows 11
-                    default: return Convert(args);
+                    case "--stdin-lib": return MakeLibrary(ReadStdin());
+                    default: return args.All(IsIco) ? MakeLibrary(args) : Convert(args); // arquivos arrastados
                 }
             }
             catch (Exception ex) { return Fail(ex.Message); }
@@ -94,18 +96,18 @@ namespace Iconzinho
         /// O Explorer abre um processo por arquivo selecionado. Cada um deixa seu caminho na fila; o
         /// primeiro a pegar o mutex espera os outros chegarem e converte tudo junto.
         /// </summary>
-        static int RunQueued(string path)
+        static int RunQueued(string path, string dir, Func<List<string>, int> work)
         {
-            Directory.CreateDirectory(App.QueueDir);
-            string id = Path.Combine(App.QueueDir, Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            string id = Path.Combine(dir, Guid.NewGuid().ToString("N"));
             File.WriteAllText(id + ".tmp", path, Encoding.UTF8);
             File.Move(id + ".tmp", id + ".txt"); // só aparece na fila já completo
 
             int result = 0;
-            using (Mutex m = new Mutex(false, @"Local\" + App.Name + "Queue"))
+            using (Mutex m = new Mutex(false, @"Local\" + App.Name + Path.GetFileName(dir)))
             {
                 // Reconfere a fila depois de soltar o mutex: alguém pode ter entrado no último instante.
-                while (Directory.GetFiles(App.QueueDir, "*.txt").Length > 0)
+                while (Directory.GetFiles(dir, "*.txt").Length > 0)
                 {
                     bool mine;
                     try { mine = m.WaitOne(0); }
@@ -113,8 +115,8 @@ namespace Iconzinho
                     if (!mine) return 0;
                     try
                     {
-                        List<string> files = Drain();
-                        if (files.Count > 0) result |= Convert(files);
+                        List<string> files = Drain(dir);
+                        if (files.Count > 0) result |= work(files);
                     }
                     finally { m.ReleaseMutex(); }
                 }
@@ -122,18 +124,18 @@ namespace Iconzinho
             return result;
         }
 
-        static List<string> Drain()
+        static List<string> Drain(string dir)
         {
             Stopwatch quietFor = Stopwatch.StartNew();
             int last = -1;
             while (quietFor.ElapsedMilliseconds < 600)
             {
-                int n = Directory.GetFiles(App.QueueDir, "*.txt").Length;
+                int n = Directory.GetFiles(dir, "*.txt").Length;
                 if (n != last) { last = n; quietFor.Restart(); }
                 Thread.Sleep(40);
             }
             List<string> files = new List<string>();
-            foreach (string f in Directory.GetFiles(App.QueueDir, "*.txt"))
+            foreach (string f in Directory.GetFiles(dir, "*.txt"))
             {
                 // sobra de uma execução que morreu no meio: descarta
                 bool stale = DateTime.UtcNow - File.GetLastWriteTimeUtc(f) > TimeSpan.FromMinutes(10);
@@ -145,7 +147,7 @@ namespace Iconzinho
 
         // ---------------------------------------------------------------- conversão
 
-        static int Convert(IEnumerable<string> paths)
+        static int Convert(List<string> paths)
         {
             List<Source> sources = new List<Source>();
             List<string> errors = new List<string>();
@@ -160,8 +162,8 @@ namespace Iconzinho
                 try
                 {
                     string name = icon.Count == 1 && icon[0].BaseName == "" ? icon[0].FileName : icon[0].BaseName;
-                    if (name == "") name = new DirectoryInfo(icon[0].Dir).Name.TrimEnd('\\', ':');
-                    string dest = FreeName(icon[0].Dir, name);
+                    if (name == "") name = FolderName(icon[0].Dir);
+                    string dest = FreeName(icon[0].Dir, name, ".ico");
                     File.WriteAllBytes(dest, BuildIco(icon));
                     SHChangeNotify(0x00000002, 0x0005, dest, IntPtr.Zero); // SHCNE_CREATE, SHCNF_PATHW
                     if (quiet) Console.WriteLine(dest);
@@ -169,6 +171,48 @@ namespace Iconzinho
                 catch (Exception ex) { errors.Add(Path.GetFileName(icon[0].Path) + ": " + ex.Message); }
             }
             return errors.Count == 0 ? 0 : Fail(string.Join("\n", errors));
+        }
+
+        static string FolderName(string dir) { return new DirectoryInfo(dir).Name.TrimEnd('\\', ':'); }
+
+        static bool IsIco(string path) { return Path.GetExtension(path).Equals(".ico", StringComparison.OrdinalIgnoreCase); }
+
+        [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]
+        static extern int StrCmpLogicalW(string a, string b);
+
+        /// <summary>
+        /// Todos os .ico numa biblioteca só, com o nome da pasta e na ordem dos nomes, como o Explorer
+        /// mostra ("2" antes de "10"). Se algum for inválido não gera nada: faltaria um em silêncio.
+        /// </summary>
+        static int MakeLibrary(List<string> paths)
+        {
+            List<string> files = paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            files.Sort((a, b) =>
+            {
+                int c = StrCmpLogicalW(Path.GetFileName(a), Path.GetFileName(b));
+                return c != 0 ? c : StrCmpLogicalW(a, b);
+            });
+            List<byte[]> icos = new List<byte[]>();
+            List<string> errors = new List<string>();
+            foreach (string f in files)
+            {
+                try
+                {
+                    byte[] ico = File.ReadAllBytes(f);
+                    IconLibrary.Build(new[] { ico }); // valida
+                    icos.Add(ico);
+                }
+                catch (Exception ex) { errors.Add(Path.GetFileName(f) + ": " + ex.Message); }
+            }
+            if (errors.Count > 0)
+                return Fail(App.T("The library was not created:", "A biblioteca não foi criada:") + "\n\n" + string.Join("\n", errors));
+
+            string dir = Path.GetDirectoryName(files[0]);
+            string dest = FreeName(dir, FolderName(dir), ".dll");
+            File.WriteAllBytes(dest, IconLibrary.Build(icos));
+            SHChangeNotify(0x00000002, 0x0005, dest, IntPtr.Zero); // SHCNE_CREATE, SHCNF_PATHW
+            if (quiet) Console.WriteLine(dest);
+            return 0;
         }
 
         /// <summary>
@@ -193,10 +237,10 @@ namespace Iconzinho
         }
 
         static bool Clash(List<Source> l) { return l.Select(s => s.Size).Distinct().Count() != l.Count; }
-        static string FreeName(string dir, string name)
+        static string FreeName(string dir, string name, string ext)
         {
-            string p = Path.Combine(dir, name + ".ico");
-            for (int i = 2; File.Exists(p); i++) p = Path.Combine(dir, name + " (" + i + ").ico");
+            string p = Path.Combine(dir, name + ext);
+            for (int i = 2; File.Exists(p); i++) p = Path.Combine(dir, name + " (" + i + ")" + ext);
             return p;
         }
 
